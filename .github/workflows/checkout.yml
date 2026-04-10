@@ -2,22 +2,29 @@ name: Validación del Código
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   check-code:
     name: Fase CI: Validación
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Esta línea y la siguiente son necesarias antes de los pasos
     steps:
-      - name: Checkout del Código
+      - name: ⬇️ Checkout del Código
         uses: actions/checkout@v4
 
-      - name: Setup Node.js v20
+      - name: ⚙️ Configurar Node.js v20
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
+          cache: 'npm'
 
-      - name: Instalar Dependencias
+      - name: 📦 Instalar Dependencias (npm ci)
         run: npm ci
+
+      - name: 🔒 Verificar Compliance
+        run: npm audit
+
+      - name: 🧪 Ejecutar Pruebas Automatizadas
+        run: npm test
