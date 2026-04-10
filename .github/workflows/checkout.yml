@@ -9,8 +9,8 @@ on:
 jobs:
   check-code:
     name: Fase CI: Validación
-    runs-on: ubuntu-latest  # Línea 10: Define el servidor de ejecución
-    steps:                  # Línea 11: Etiqueta obligatoria para agrupar acciones
+    runs-on: ubuntu-latest
+    steps:
       - name: ⬇️ Checkout del Código
         uses: actions/checkout@v4
 
