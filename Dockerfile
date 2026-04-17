@@ -8,7 +8,7 @@ RUN npm ci --only=production
 
 COPY index.js ./
 
-FROM node:20-slim AS production
+FROM node:21-slim AS production
 
 ARG BUILD_COLOR="Blue"
 ENV NODE_ENV production
