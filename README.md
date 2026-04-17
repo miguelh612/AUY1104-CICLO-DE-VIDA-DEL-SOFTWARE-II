@@ -4,6 +4,6 @@
 
 - Intento A
 
-- Intento B 13:11
+- Intento B 13:11 - 13:34
 
 - Intento C 13:15
