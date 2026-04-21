@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+
     outputs:
       image_uri: ${{ steps.build_push.outputs.image_uri }}
 
@@ -29,17 +29,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials (Access Keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
       - name: Validate required inputs
         run: |
           set -euo pipefail
-          if [ -z "${{ secrets.AWS_ROLE_ARN }}" ]; then
-            echo "ERROR: Missing required secret AWS_ROLE_ARN" >&2
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+            echo "ERROR: Missing required secrets AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY" >&2
             exit 1
           fi
 
@@ -68,7 +69,6 @@ jobs:
     uses: ./.github/workflows/deploy-eks.yml
     permissions:
       contents: read
-      id-token: write
     with:
       image-uri: ${{ needs.build.outputs.image_uri }}
     secrets: inherit
