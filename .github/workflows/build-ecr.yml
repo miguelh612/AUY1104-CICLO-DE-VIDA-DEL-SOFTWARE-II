@@ -69,6 +69,7 @@ jobs:
     uses: ./.github/workflows/deploy-eks.yml
     permissions:
       contents: read
+      id-token: write
     with:
       image-uri: ${{ needs.build.outputs.image_uri }}
     secrets: inherit
