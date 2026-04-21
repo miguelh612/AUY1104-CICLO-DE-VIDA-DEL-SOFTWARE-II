@@ -1,0 +1,90 @@
+name: Deploy to EKS
+
+on:
+  workflow_call:
+    inputs:
+      image-uri:
+        description: Full ECR image URI including tag
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      image-uri:
+        description: Full ECR image URI including tag
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Rolling update on EKS
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-1
+      EKS_CLUSTER_NAME: duoc-eks-cluster-cli
+      DEPLOYMENT_NAME: duoc-app
+      CONTAINER_NAME: duoc-app
+      APP_LABEL: duoc-app
+      HEALTH_PATH: /
+      HEALTH_PORT: "3000"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve image URI input
+        id: resolve-input
+        run: |
+          set -euo pipefail
+          IMAGE_URI="${{ inputs.image-uri || github.event.inputs.image-uri }}"
+          if [ -z "${IMAGE_URI}" ]; then
+            echo "ERROR: image-uri input is required" >&2
+            exit 1
+          fi
+          echo "image_uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+          echo "Deploying image: ${IMAGE_URI}"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl for EKS
+        uses: aws-actions/eks-set-context@v4
+        with:
+          cluster-name: ${{ env.EKS_CLUSTER_NAME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure base manifests are applied
+        run: |
+          set -euo pipefail
+          kubectl apply -f k8s/configmap.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      - name: Update deployment image (Rolling Update)
+        env:
+          IMAGE_URI: ${{ steps.resolve-input.outputs.image_uri }}
+        run: |
+          set -euo pipefail
+          kubectl set image deployment/${DEPLOYMENT_NAME} ${CONTAINER_NAME}=${IMAGE_URI}
+          kubectl rollout status deployment/${DEPLOYMENT_NAME} --timeout=300s
+
+      - name: Validate pods are healthy
+        run: |
+          set -euo pipefail
+          kubectl get deployment ${DEPLOYMENT_NAME} -o wide
+          kubectl get pods -l app=${APP_LABEL} -o wide
+          kubectl wait --for=condition=Ready pod -l app=${APP_LABEL} --timeout=180s
+
+      - name: Health check from cluster
+        run: |
+          set -euo pipefail
+          kubectl run healthcheck-${{ github.run_id }} \
+            --image=curlimages/curl:8.7.1 \
+            --rm --restart=Never -i --quiet \
+            --command -- \
+            sh -c "curl -fsS --max-time 10 http://${DEPLOYMENT_NAME}:${HEALTH_PORT}${HEALTH_PATH}"

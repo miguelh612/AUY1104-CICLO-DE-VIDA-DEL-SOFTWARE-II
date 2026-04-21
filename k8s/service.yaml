@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: duoc-app
+  labels:
+    app: duoc-app
+spec:
+  type: LoadBalancer
+  selector:
+    app: duoc-app
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3000

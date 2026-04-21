@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: duoc-app-config
+  labels:
+    app: duoc-app
+data:
+  APP_COLOR: Blue
+  NODE_ENV: production
