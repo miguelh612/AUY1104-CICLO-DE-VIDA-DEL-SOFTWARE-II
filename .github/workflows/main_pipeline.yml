@@ -2,7 +2,8 @@ name: Pipeline Principal CI/CD
 
 on:
   push:
-    branches: [ develop ]
+    branches: 
+      - develop
 
 jobs:
   test:
