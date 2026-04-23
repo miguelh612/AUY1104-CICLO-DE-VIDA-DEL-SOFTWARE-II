@@ -1,0 +1,37 @@
+name: "TechMarket CI/CD Estandarizado"
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+
+jobs:
+  execute-tests:
+    uses: ./.github/workflows/templates/template_test.yml
+    with:
+      node-version: "20"
+
+  build-and-push:
+    needs: execute-tests
+    uses: ./.github/workflows/templates/template_build.yml
+    with:
+      aws-region: ${{ vars.AWS_REGION }} # ej: us-east-1
+      ecr-repository: ${{ vars.ECR_REPOSITORY }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+  deploy-to-eks:
+    needs: build-and-push
+    uses: ./.github/workflows/templates/template_deploy.yml
+    with:
+      aws-region: ${{ vars.AWS_REGION }}
+      eks-cluster-name: "duoc-eks-cluster-cli" # Ajustable por entorno
+      image-tag: ${{ needs.build-and-push.outputs.image-tag }}
+      deployment-name: "duoc-app-rolling"
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
