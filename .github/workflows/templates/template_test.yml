@@ -1,0 +1,31 @@
+name: "Template: Test (v1.0.0)"
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Versión de Node.js a utilizar"
+        required: false
+        type: string
+        default: "20"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⬇️ Checkout del Código
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Configurar Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: 📦 Instalar Dependencias
+        run: npm ci
+      
+      - name: 🔒 Verificar Compliance (Seguridad)
+        run: npm audit
+
+      - name: 🧪 Ejecutar Pruebas Automatizadas
+        run: npm test
