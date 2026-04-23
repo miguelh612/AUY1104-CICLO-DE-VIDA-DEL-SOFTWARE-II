@@ -3,7 +3,7 @@ name: Build and Test
 on:
   push:
     branches:
-      - develop # Branch nueva
+      - main
   pull_request:
     types: [opened, reopened, synchronize] # Activadores para CI
 
