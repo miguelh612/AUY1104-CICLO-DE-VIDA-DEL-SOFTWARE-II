@@ -22,7 +22,7 @@ on:
         description: 'Ruta al archivo YAML para Rolling Update'
         required: false
         type: string
-        default: '[K8S-YAML-PATH]' # Marcador de posición que debe sobreescribirse.
+        default: '[K8S-YAML-PATH]'
       deployment_name_rolling:
         description: 'Nombre del Deployment para Rolling Update'
         required: false
@@ -78,7 +78,6 @@ on:
         default: 3
 
     secrets:
-      # --- Secrets obligatorios para AWS ---
       AWS_ACCESS_KEY_ID:
         description: 'Access Key ID de AWS'
         required: true
@@ -97,12 +96,11 @@ jobs:
       contents: read 
     
     steps:
-      # 1. ⬇️ Checkout Código: Para acceder a los manifiestos K8s.
+      # 1. ⬇️ Checkout Código
       - name: Checkout Código
         uses: actions/checkout@v4
 
-      # 2. Configurar Credenciales AWS: Autenticación segura y portable.
-      - name: Configurar Credenciales AWS (AK/SK/Token)
+      # 2. Configurar Credenciales AWS (Se unificó en un solo paso válido)
       - name: Configurar Credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -111,77 +109,48 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ inputs.aws_region }}
 
-      # 3. Configurar Kubectl para EKS: Prepara kubectl para interactuar con el cluster.
+      # 3. Configurar Kubectl para EKS
       - name: Configurar Kubectl para EKS
         uses: aws-actions/eks-set-context@v4
         with:
           cluster-name: ${{ inputs.eks_cluster_name }}
           aws-region: ${{ inputs.aws_region }}
       
-      # 4. Bloques condicionales por Estrategia de Despliegue.
+      # 4. Bloques condicionales por Estrategia
       
-      # -----------------------------------------------------------
-      # 4.1. 🔄 ROLLING UPDATE (Actualización gradual)
-      # -----------------------------------------------------------
+      # 4.1. 🔄 ROLLING UPDATE
       - name: 🔄 Ejecutar Rolling Update (Default)
         if: ${{ inputs.strategy == 'rolling-update' }}
         run: |
-          echo "Aplicando YAML para Rolling Update con ruta: ${{ inputs.k8s_yaml_path_rolling }}..."
+          echo "Aplicando YAML para Rolling Update..."
           kubectl apply -f ${{ inputs.k8s_yaml_path_rolling }}
           kubectl rollout status deployment/${{ inputs.deployment_name_rolling }} --timeout=300s
-          echo "✅ Rolling Update completado."
 
-      # -----------------------------------------------------------
-      # 4.2. ❌ RECREATE (All-in-once)
-      # -----------------------------------------------------------
+      # 4.2. ❌ RECREATE
       - name: ❌ Ejecutar Recreate (All-in-once)
         if: ${{ inputs.strategy == 'recreate' }}
         run: |
-          echo "Aplicando YAML para Recreate con ruta: ${{ inputs.k8s_yaml_path_recreate }}..."
+          echo "Aplicando YAML para Recreate..."
           kubectl apply -f ${{ inputs.k8s_yaml_path_recreate }}
           kubectl rollout status deployment/${{ inputs.deployment_name_recreate }} --timeout=300s
-          echo "✅ Recreate completado."
           
-      # -----------------------------------------------------------
-      # 4.3. 🟦 BLUE/GREEN (Switch atómico con Patch)
-      # -----------------------------------------------------------
+      # 4.3. 🟦 BLUE/GREEN
       - name: 🟦 Ejecutar Blue/Green (kubectl patch)
         if: ${{ inputs.strategy == 'blue-green' }}
         run: |
-          echo "1. Desplegando el entorno GREEN con ruta: ${{ inputs.k8s_yaml_path_green }}..."
           kubectl apply -f ${{ inputs.k8s_yaml_path_green }}
           kubectl rollout status deployment/${{ inputs.deployment_green_name }} --timeout=300s
-          echo "✅ Rollout de GREEN completado."
-          
-          echo "2. Ventana de Prueba/Observación (120 segundos)..."
           sleep 120
-          echo "✅ Prueba simulada completada."
-          
-          echo "3. Ejecutando el Switch de tráfico: BLUE -> GREEN..."
           kubectl patch service ${{ inputs.service_bg_name }} -p '{"spec": {"selector": {"version": "green"}}}'
-          echo "✅ Switch de tráfico completado."
           
-      # -----------------------------------------------------------
-      # 4.4. 🐥 CANARY (Promoción con Scale)
-      # -----------------------------------------------------------
+      # 4.4. 🐥 CANARY
       - name: 🐥 Ejecutar Canary (kubectl scale)
         if: ${{ inputs.strategy == 'canary' }}
         run: |
           TOTAL_REPLICAS=${{ inputs.canary_total_replicas }} 
-          
-          echo "1. Desplegando el entorno CANARY (10% de tráfico) con ruta: ${{ inputs.k8s_yaml_path_canary }}..."
           kubectl apply -f ${{ inputs.k8s_yaml_path_canary }}
           kubectl rollout status deployment/${{ inputs.deployment_canary_name }} --timeout=300s
-          echo "✅ Rollout de CANARY inicial completado."
-          
-          echo "2. Ventana de Prueba/Observación (120 segundos)..."
           sleep 120
-          echo "✅ Prueba simulada completada."
-          
-          echo "3. PROMOCIÓN: Escalar ${{ inputs.deployment_canary_name }} a $TOTAL_REPLICAS y ${{ inputs.stable_deployment_name }} a 0..."
           kubectl scale deployment/${{ inputs.deployment_canary_name }} --replicas=$TOTAL_REPLICAS
           kubectl scale deployment/${{ inputs.stable_deployment_name }} --replicas=0
-          
-          echo "4. Esperando el Rollout de Promoción (V2)..."
           kubectl rollout status deployment/${{ inputs.deployment_canary_name }} --timeout=300s
-          echo "✅ Promoción Canary completada."
