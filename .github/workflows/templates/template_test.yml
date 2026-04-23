@@ -1,0 +1,36 @@
+name: Template Ejecución de Pruebas
+
+on:
+  workflow_call:
+    inputs:
+      # --- Inputs obligatorios ---
+      node_version:
+        description: 'Versión de Node.js a configurar (ej: 20)'
+        required: true
+        type: string
+
+jobs:
+  test:
+    name: Ejecutar Pruebas Automatizadas
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read 
+
+    steps:
+      # 1. ⬇️ Checkout del código: Fundamental para acceder a los archivos de prueba.
+      - name: ⬇️ Checkout del Código
+        uses: actions/checkout@v4
+
+      # 2. ⚙️ Configurar Node.js: Prepara el entorno para ejecutar las pruebas.
+      - name: ⚙️ Configurar Node.js ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      # 3. 📦 Instalar Dependencias: Utiliza npm ci para instalaciones reproducibles.
+      - name: 📦 Instalar Dependencias
+        run: npm ci
+      
+      # 4. 🧪 Ejecutar Pruebas Automatizadas: Paso lógico y ordenado.
+      - name: 🧪 Ejecutar Pruebas Automatizadas (Unidad/Integración)
+        run: npm test
