@@ -7,6 +7,11 @@ on:
     types:
       - completed
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de imagen en ECR a desplegar (requerido en ejecucion manual)"
+        required: true
+        type: string
 
 jobs:
   deploy-to-ecs:
@@ -34,14 +39,35 @@ jobs:
       - name: Resolve image URI to deploy
         id: image
         run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            IMAGE_TAG="${{ inputs.image_tag }}"
+          elif [ "${{ github.event_name }}" = "workflow_run" ]; then
             IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
           else
-            IMAGE_TAG="${{ github.sha }}"
+            echo "Unsupported event for this workflow: ${{ github.event_name }}"
+            exit 1
           fi
+
+          # Retry para evitar fallas por consistencia eventual en ECR.
+          for i in 1 2 3 4 5; do
+            if aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids imageTag="$IMAGE_TAG" \
+              --region "$AWS_REGION" > /dev/null 2>&1; then
+              break
+            fi
+
+            if [ "$i" -eq 5 ]; then
+              echo "Image tag not found in ECR after retries: $IMAGE_TAG"
+              exit 1
+            fi
+
+            sleep 5
+          done
 
           IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG"
 
+          echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
           echo "Deploying image: $IMAGE_URI"
 
