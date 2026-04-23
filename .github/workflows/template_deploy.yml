@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       cluster_name:
-        description: 'Nombre del Cluster EKS'
+        description: 'Nombre del Cluster ECS'
         required: true
         type: string
       aws_region:
