@@ -3,8 +3,7 @@ name: "TechMarket CI/CD Estandarizado"
 on:
   push:
     branches:
-      - master
-      - develop
+      - dev
 
 jobs:
   execute-tests:
