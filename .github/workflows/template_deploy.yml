@@ -22,7 +22,7 @@ on:
         description: 'Ruta al archivo YAML de Kubernetes (usado por la estrategia seleccionada)'
         required: false
         type: string
-        default: '[K8S-YAML-PATH]'
+        default: ''
       k8s_yaml_path_rolling:
         description: 'Ruta al archivo YAML para Rolling Update (sobreescribe k8s_yaml_path)'
         required: false
