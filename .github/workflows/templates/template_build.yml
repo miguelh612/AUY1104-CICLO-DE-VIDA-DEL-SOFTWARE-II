@@ -1,0 +1,56 @@
+name: "Template: Build & Push ECR (v1.0.0)"
+
+on:
+  workflow_call:
+    inputs:
+      aws-region:
+        required: true
+        type: string
+      ecr-repository:
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true # CRÍTICO PARA AWS LEARNER LAB
+
+    outputs:
+      image-tag:
+        description: "Tag de la imagen construida"
+        value: ${{ jobs.build.outputs.tag }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - name: Checkout Código
+        uses: actions/checkout@v4
+
+      - name: Generar Tag Corto
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Configurar Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Login a Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build y Push a ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.vars.outputs.sha_short }}
+        run: |
+          docker build -t $ECR_REGISTRY/${{ inputs.ecr-repository }}:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/${{ inputs.ecr-repository }}:$IMAGE_TAG
