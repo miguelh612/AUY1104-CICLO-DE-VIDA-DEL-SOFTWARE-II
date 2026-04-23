@@ -1,11 +1,7 @@
 # AUY1104-CICLO-DE-VIDA-DEL-SOFTWARE-II
 
-## ACT 1.4
+## ECS
 
-- Intento A
+Intento de completar la fase de deploy utilizando ECS.
 
-- Intento B 13:11 - 13:34
-
-- Intento C 13:15
-
--- Prueba
+### .env
