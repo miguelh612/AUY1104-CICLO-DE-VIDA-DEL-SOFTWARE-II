@@ -10,7 +10,7 @@ COPY index.js ./
 
 FROM node:21-slim AS production
 
-ARG BUILD_COLOR="Blue"
+ARG BUILD_COLOR="Green"
 ENV NODE_ENV production
 
 ENV APP_COLOR $BUILD_COLOR 
