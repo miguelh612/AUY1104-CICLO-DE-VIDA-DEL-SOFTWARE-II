@@ -2,26 +2,29 @@ name: Pipeline Principal CI/CD
 
 on:
   push:
-    branches:
-      - main
+    branches: [ develop ]
 
 jobs:
-  # Llamamos a la plantilla de pruebas
-  ejecutar-pruebas:
-    uses: ./.github/workflows/templates/template_test.yml
-    with:
-      node_version: '20' # Le pasamos el input que pide la plantilla
-
-  # Llamamos a la plantilla de build (depende de que las pruebas pasen)
-  empaquetar-imagen:
-    needs: ejecutar-pruebas
-    uses: ./.github/workflows/templates/template_build.yml
+  test:
+    uses: ./.github/workflows/template_test.yml
     with:
       node_version: '20'
-      aws_region: 'us-east-1'
-      ecr_repository: 'mi-repo-duoc'
-      aws_account_id: '123456789012'
-    secrets:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+
+  build:
+    needs: test
+    uses: ./.github/workflows/template_build.yml
+    with:
+      node_version: '20'
+      aws_region: ${{ vars.AWS_REGION }}
+      ecr_repository: ${{ vars.ECR_REPOSITORY }}
+    secrets: inherit
+
+  deploy:
+    needs: build
+    uses: ./.github/workflows/template_deploy.yml
+    with:
+      strategy: 'rolling-update'
+      aws_region: ${{ vars.AWS_REGION }}
+      eks_cluster_name: 'duoc-eks-cluster-cli'
+      k8s_yaml_path: './k8s/deployment.yml'
+    secrets: inherit
