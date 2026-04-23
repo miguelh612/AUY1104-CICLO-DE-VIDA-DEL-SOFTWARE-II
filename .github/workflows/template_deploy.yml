@@ -4,83 +4,40 @@ on:
   workflow_call:
     inputs:
       # --- Inputs obligatorios para el despliegue ---
-      strategy:
-        description: 'Estrategia a Ejecutar (must be: rolling-update, recreate, blue-green, or canary)'
-        required: true
-        type: string
-      cluster_name:
-        description: 'Nombre del Cluster ECS'
-        required: true
-        type: string
       aws_region:
         description: 'Región de AWS'
         required: true
         type: string
-      
-      # --- Inputs opcionales (parametrización para portabilidad) ---
-      k8s_yaml_path:
-        description: 'Ruta al archivo YAML de Kubernetes (usado por la estrategia seleccionada)'
+      aws_account_id:
+        description: 'ID de la cuenta de AWS para la URI de ECR'
+        required: true
+        type: string
+      ecr_repository:
+        description: 'Nombre del repositorio ECR'
+        required: true
+        type: string
+      ecs_cluster:
+        description: 'Nombre del cluster de ECS'
+        required: true
+        type: string
+      ecs_service:
+        description: 'Nombre del servicio de ECS'
+        required: true
+        type: string
+      ecs_task_family:
+        description: 'Familia de definición de tarea en ECS'
+        required: true
+        type: string
+      ecs_container_name:
+        description: 'Nombre del contenedor dentro de la tarea'
+        required: true
+        type: string
+
+      # --- Inputs opcionales ---
+      image_tag:
+        description: 'Tag de la imagen Docker a desplegar (por defecto el SHA del commit)'
         required: false
         type: string
-        default: ''
-      k8s_yaml_path_rolling:
-        description: 'Ruta al archivo YAML para Rolling Update (sobreescribe k8s_yaml_path)'
-        required: false
-        type: string
-        default: ''
-      deployment_name_rolling:
-        description: 'Nombre del Deployment para Rolling Update'
-        required: false
-        type: string
-        default: 'duoc-app-rolling'
-      
-      k8s_yaml_path_recreate:
-        description: 'Ruta al archivo YAML para Recreate (sobreescribe k8s_yaml_path)'
-        required: false
-        type: string
-        default: ''
-      deployment_name_recreate:
-        description: 'Nombre del Deployment para Recreate'
-        required: false
-        type: string
-        default: 'duoc-app-recreate'
-      
-      k8s_yaml_path_green:
-        description: 'Ruta al archivo YAML para entorno Green (Blue/Green) (sobreescribe k8s_yaml_path)'
-        required: false
-        type: string
-        default: ''
-      deployment_green_name:
-        description: 'Nombre del Deployment Green (Blue/Green)'
-        required: false
-        type: string
-        default: 'duoc-app-green'
-      service_bg_name:
-        description: 'Nombre del Servicio para el Switch de tráfico (Blue/Green)'
-        required: false
-        type: string
-        default: 'duoc-app-bg-service'
-      
-      k8s_yaml_path_canary:
-        description: 'Ruta al archivo YAML para entorno Canary (sobreescribe k8s_yaml_path)'
-        required: false
-        type: string
-        default: ''
-      deployment_canary_name:
-        description: 'Nombre del Deployment Canary (v2)'
-        required: false
-        type: string
-        default: 'duoc-app-canary-v2'
-      stable_deployment_name:
-        description: 'Nombre del Deployment Estable (v1)'
-        required: false
-        type: string
-        default: 'duoc-app-stable-v1'
-      canary_total_replicas:
-        description: 'Número total de réplicas tras la promoción'
-        required: false
-        type: number
-        default: 3
 
     secrets:
       AWS_ACCESS_KEY_ID:
@@ -95,67 +52,98 @@ on:
 
 jobs:
   deploy:
-    name: Desplegar en EKS
+    name: Desplegar en ECS
     runs-on: ubuntu-latest
     permissions:
-      contents: read 
-    
-    steps:
-      # 1. ⬇️ Checkout Código
-      - name: Checkout Código
-        uses: actions/checkout@v4
+      contents: read
+    env:
+      AWS_REGION: ${{ inputs.aws_region }}
+      AWS_ACCOUNT_ID: ${{ inputs.aws_account_id }}
+      ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+      ECS_CLUSTER: ${{ inputs.ecs_cluster }}
+      ECS_SERVICE: ${{ inputs.ecs_service }}
+      ECS_TASK_FAMILY: ${{ inputs.ecs_task_family }}
+      ECS_CONTAINER_NAME: ${{ inputs.ecs_container_name }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
 
-      # 2. Configurar Credenciales AWS (Se unificó en un solo paso válido)
+    steps:
+      # 1. Configurar Credenciales AWS
       - name: Configurar Credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ inputs.aws_region }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Configurar Kubectl para EKS
-      - name: Configurar Kubectl para EKS
-        uses: aws-actions/eks-set-context@v4
-        with:
-          cluster-name: ${{ inputs.cluster_name }}
-          aws-region: ${{ inputs.aws_region }}
-      
-      # 4. Bloques condicionales por Estrategia
-      
-      # 4.1. 🔄 ROLLING UPDATE
-      - name: 🔄 Ejecutar Rolling Update (Default)
-        if: ${{ inputs.strategy == 'rolling-update' }}
+      # 2. Obtener la definición de tarea actual desde ECS
+      - name: Obtener definición de tarea actual
         run: |
-          echo "Aplicando YAML para Rolling Update..."
-          kubectl apply -f ${{ inputs.k8s_yaml_path_rolling || inputs.k8s_yaml_path }}
-          kubectl rollout status deployment/${{ inputs.deployment_name_rolling }} --timeout=300s
+          aws ecs describe-task-definition \
+            --task-definition "$ECS_TASK_FAMILY" \
+            --query taskDefinition > task-definition.json
 
-      # 4.2. ❌ RECREATE
-      - name: ❌ Ejecutar Recreate (All-in-once)
-        if: ${{ inputs.strategy == 'recreate' }}
+          jq -e 'del(
+            .taskDefinitionArn,
+            .revision,
+            .status,
+            .requiresAttributes,
+            .compatibilities,
+            .registeredAt,
+            .registeredBy
+          )' task-definition.json > base-task-definition.json
+
+      # 3. Actualizar la imagen del contenedor especificado
+      - name: Actualizar imagen del contenedor
         run: |
-          echo "Aplicando YAML para Recreate..."
-          kubectl apply -f ${{ inputs.k8s_yaml_path_recreate || inputs.k8s_yaml_path }}
-          kubectl rollout status deployment/${{ inputs.deployment_name_recreate }} --timeout=300s
-          
-      # 4.3. 🟦 BLUE/GREEN
-      - name: 🟦 Ejecutar Blue/Green (kubectl patch)
-        if: ${{ inputs.strategy == 'blue-green' }}
+          IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          jq -e --arg IMAGE_URI "$IMAGE_URI" --arg CONTAINER_NAME "$ECS_CONTAINER_NAME" '
+            .containerDefinitions |= map(
+              if .name == $CONTAINER_NAME
+              then .image = $IMAGE_URI
+              else .
+              end
+            )
+          ' base-task-definition.json > new-task-definition.json
+
+          UPDATED=$(jq -r --arg CONTAINER_NAME "$ECS_CONTAINER_NAME" --arg IMAGE_URI "$IMAGE_URI" '
+            .containerDefinitions[] | select(.name == $CONTAINER_NAME and .image == $IMAGE_URI) | .name
+          ' new-task-definition.json)
+
+          if [ -z "$UPDATED" ]; then
+            echo "Error: Container '$ECS_CONTAINER_NAME' not found in task definition or image was not updated."
+            exit 1
+          fi
+
+      # 4. Registrar una nueva versión de la definición de tarea
+      - name: Registrar nueva definición de tarea
+        id: register-task
         run: |
-          kubectl apply -f ${{ inputs.k8s_yaml_path_green || inputs.k8s_yaml_path }}
-          kubectl rollout status deployment/${{ inputs.deployment_green_name }} --timeout=300s
-          sleep 120
-          kubectl patch service ${{ inputs.service_bg_name }} -p '{"spec": {"selector": {"version": "green"}}}'
-          
-      # 4.4. 🐥 CANARY
-      - name: 🐥 Ejecutar Canary (kubectl scale)
-        if: ${{ inputs.strategy == 'canary' }}
+          NEW_TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-definition.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          if [ -z "$NEW_TASK_DEFINITION_ARN" ]; then
+            echo "Error: Failed to register new task definition."
+            exit 1
+          fi
+
+          echo "task_definition_arn=$NEW_TASK_DEFINITION_ARN" >> $GITHUB_OUTPUT
+
+      # 5. Actualizar el servicio ECS con la nueva definición de tarea
+      - name: Actualizar servicio ECS
         run: |
-          TOTAL_REPLICAS=${{ inputs.canary_total_replicas }} 
-          kubectl apply -f ${{ inputs.k8s_yaml_path_canary || inputs.k8s_yaml_path }}
-          kubectl rollout status deployment/${{ inputs.deployment_canary_name }} --timeout=300s
-          sleep 120
-          kubectl scale deployment/${{ inputs.deployment_canary_name }} --replicas=$TOTAL_REPLICAS
-          kubectl scale deployment/${{ inputs.stable_deployment_name }} --replicas=0
-          kubectl rollout status deployment/${{ inputs.deployment_canary_name }} --timeout=300s
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "${{ steps.register-task.outputs.task_definition_arn }}" \
+            --force-new-deployment
+
+      # 6. Esperar a que el servicio se estabilice
+      - name: Esperar a que el servicio se estabilice
+        run: |
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
