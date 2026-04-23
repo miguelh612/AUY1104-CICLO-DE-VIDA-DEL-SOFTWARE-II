@@ -8,7 +8,7 @@ on:
         description: 'Estrategia a Ejecutar (must be: rolling-update, recreate, blue-green, or canary)'
         required: true
         type: string
-      eks_cluster_name:
+      cluster_name:
         description: 'Nombre del Cluster EKS'
         required: true
         type: string
@@ -18,11 +18,16 @@ on:
         type: string
       
       # --- Inputs opcionales (parametrización para portabilidad) ---
-      k8s_yaml_path_rolling:
-        description: 'Ruta al archivo YAML para Rolling Update'
+      k8s_yaml_path:
+        description: 'Ruta al archivo YAML de Kubernetes (usado por la estrategia seleccionada)'
         required: false
         type: string
         default: '[K8S-YAML-PATH]'
+      k8s_yaml_path_rolling:
+        description: 'Ruta al archivo YAML para Rolling Update (sobreescribe k8s_yaml_path)'
+        required: false
+        type: string
+        default: ''
       deployment_name_rolling:
         description: 'Nombre del Deployment para Rolling Update'
         required: false
@@ -30,10 +35,10 @@ on:
         default: 'duoc-app-rolling'
       
       k8s_yaml_path_recreate:
-        description: 'Ruta al archivo YAML para Recreate'
+        description: 'Ruta al archivo YAML para Recreate (sobreescribe k8s_yaml_path)'
         required: false
         type: string
-        default: '[K8S-YAML-PATH]'
+        default: ''
       deployment_name_recreate:
         description: 'Nombre del Deployment para Recreate'
         required: false
@@ -41,10 +46,10 @@ on:
         default: 'duoc-app-recreate'
       
       k8s_yaml_path_green:
-        description: 'Ruta al archivo YAML para entorno Green (Blue/Green)'
+        description: 'Ruta al archivo YAML para entorno Green (Blue/Green) (sobreescribe k8s_yaml_path)'
         required: false
         type: string
-        default: '[K8S-YAML-PATH]'
+        default: ''
       deployment_green_name:
         description: 'Nombre del Deployment Green (Blue/Green)'
         required: false
@@ -57,10 +62,10 @@ on:
         default: 'duoc-app-bg-service'
       
       k8s_yaml_path_canary:
-        description: 'Ruta al archivo YAML para entorno Canary'
+        description: 'Ruta al archivo YAML para entorno Canary (sobreescribe k8s_yaml_path)'
         required: false
         type: string
-        default: '[K8S-YAML-PATH]'
+        default: ''
       deployment_canary_name:
         description: 'Nombre del Deployment Canary (v2)'
         required: false
@@ -113,7 +118,7 @@ jobs:
       - name: Configurar Kubectl para EKS
         uses: aws-actions/eks-set-context@v4
         with:
-          cluster-name: ${{ inputs.eks_cluster_name }}
+          cluster-name: ${{ inputs.cluster_name }}
           aws-region: ${{ inputs.aws_region }}
       
       # 4. Bloques condicionales por Estrategia
@@ -123,7 +128,7 @@ jobs:
         if: ${{ inputs.strategy == 'rolling-update' }}
         run: |
           echo "Aplicando YAML para Rolling Update..."
-          kubectl apply -f ${{ inputs.k8s_yaml_path_rolling }}
+          kubectl apply -f ${{ inputs.k8s_yaml_path_rolling || inputs.k8s_yaml_path }}
           kubectl rollout status deployment/${{ inputs.deployment_name_rolling }} --timeout=300s
 
       # 4.2. ❌ RECREATE
@@ -131,14 +136,14 @@ jobs:
         if: ${{ inputs.strategy == 'recreate' }}
         run: |
           echo "Aplicando YAML para Recreate..."
-          kubectl apply -f ${{ inputs.k8s_yaml_path_recreate }}
+          kubectl apply -f ${{ inputs.k8s_yaml_path_recreate || inputs.k8s_yaml_path }}
           kubectl rollout status deployment/${{ inputs.deployment_name_recreate }} --timeout=300s
           
       # 4.3. 🟦 BLUE/GREEN
       - name: 🟦 Ejecutar Blue/Green (kubectl patch)
         if: ${{ inputs.strategy == 'blue-green' }}
         run: |
-          kubectl apply -f ${{ inputs.k8s_yaml_path_green }}
+          kubectl apply -f ${{ inputs.k8s_yaml_path_green || inputs.k8s_yaml_path }}
           kubectl rollout status deployment/${{ inputs.deployment_green_name }} --timeout=300s
           sleep 120
           kubectl patch service ${{ inputs.service_bg_name }} -p '{"spec": {"selector": {"version": "green"}}}'
@@ -148,7 +153,7 @@ jobs:
         if: ${{ inputs.strategy == 'canary' }}
         run: |
           TOTAL_REPLICAS=${{ inputs.canary_total_replicas }} 
-          kubectl apply -f ${{ inputs.k8s_yaml_path_canary }}
+          kubectl apply -f ${{ inputs.k8s_yaml_path_canary || inputs.k8s_yaml_path }}
           kubectl rollout status deployment/${{ inputs.deployment_canary_name }} --timeout=300s
           sleep 120
           kubectl scale deployment/${{ inputs.deployment_canary_name }} --replicas=$TOTAL_REPLICAS
