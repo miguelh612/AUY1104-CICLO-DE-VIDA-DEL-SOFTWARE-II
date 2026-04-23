@@ -1,4 +1,4 @@
-name: Template Despliegue EKS
+name: Template Despliegue ECS
 
 on:
   workflow_call:
