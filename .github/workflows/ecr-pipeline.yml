@@ -3,7 +3,7 @@ name: ECR Build & Push
 on:
   push:
     branches:
-      - develop
+      - feature/ecs
   release:
     types: [published]
 
