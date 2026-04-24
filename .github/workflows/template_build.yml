@@ -1,0 +1,96 @@
+name: Template Build & Empaquetado ECR
+
+on:
+  workflow_call:
+    inputs:
+      # --- Inputs obligatorios ---
+      node_version:
+        description: 'Versión de Node.js a configurar (ej: 20)'
+        required: true
+        type: string
+      aws_region:
+        description: 'Región de AWS para las credenciales y ECR'
+        required: true
+        type: string
+      ecr_repository:
+        description: 'Nombre del repositorio ECR'
+        required: true
+        type: string
+      aws_account_id:
+        description: 'ID de la cuenta de AWS para la URI de ECR'
+        required: false
+        type: string
+      image_tag:
+        description: 'Tag para la imagen Docker (por defecto el SHA del commit)'
+        required: false
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        description: 'Access Key ID de AWS'
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: 'Secret Access Key de AWS'
+        required: true
+      AWS_SESSION_TOKEN:
+        description: 'Session Token de AWS'
+        required: true
+
+jobs:
+  build:
+    name: Build & Push to ECR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read 
+
+    steps:
+      # 1. ⬇️ Checkout del código: Fundamental para acceder al código y al Dockerfile.
+      - name: ⬇️ Checkout del Código
+        uses: actions/checkout@v4
+
+      # 2. ⚙️ Configurar Node.js: Prepara el entorno para las herramientas de desarrollo.
+      - name: ⚙️ Configurar Node.js ${{ inputs.node_version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      # 3. 📦 Instalar Dependencias: Utiliza npm ci para instalaciones reproducibles y eficientes.
+      - name: 📦 Instalar Dependencias
+        run: npm ci
+      
+      # 4. 🔒 Verificar Compliance: Auditoría de seguridad básica de dependencias.
+      - name: 🔒 Verificar Compliance
+        run: npm audit
+
+      # 5. Configurar Credenciales AWS: Se autentica para acceder a ECR. Portabilidad garantizada.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ inputs.aws_region }} 
+
+      # 6. Login en ECR: Paso necesario para interactuar con el registro privado.
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        
+      # 7. Construir, etiquetar y empujar imagen a ECR: Modularizado y portable.
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+          # Usar tag proporcionado o el SHA por defecto.
+          IMAGE_TAG: ${{ inputs.image_tag || github.sha }} 
+        run: |
+          # 7.1. Construir la imagen local
+          docker build -t $ECR_REPOSITORY:$IMAGE_TAG .
+          
+          # 7.2. Etiquetar con la URI completa de ECR
+          docker tag $ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          
+          # 7.3. Empujar la imagen a ECR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          
+          echo "✅ La imagen $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ha sido publicada."

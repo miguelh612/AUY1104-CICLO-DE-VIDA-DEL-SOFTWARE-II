@@ -1,0 +1,149 @@
+name: Template Despliegue ECS
+
+on:
+  workflow_call:
+    inputs:
+      # --- Inputs obligatorios para el despliegue ---
+      aws_region:
+        description: 'Región de AWS'
+        required: true
+        type: string
+      aws_account_id:
+        description: 'ID de la cuenta de AWS para la URI de ECR'
+        required: true
+        type: string
+      ecr_repository:
+        description: 'Nombre del repositorio ECR'
+        required: true
+        type: string
+      ecs_cluster:
+        description: 'Nombre del cluster de ECS'
+        required: true
+        type: string
+      ecs_service:
+        description: 'Nombre del servicio de ECS'
+        required: true
+        type: string
+      ecs_task_family:
+        description: 'Familia de definición de tarea en ECS'
+        required: true
+        type: string
+      ecs_container_name:
+        description: 'Nombre del contenedor dentro de la tarea'
+        required: true
+        type: string
+
+      # --- Inputs opcionales ---
+      image_tag:
+        description: 'Tag de la imagen Docker a desplegar (por defecto el SHA del commit)'
+        required: false
+        type: string
+
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        description: 'Access Key ID de AWS'
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: 'Secret Access Key de AWS'
+        required: true
+      AWS_SESSION_TOKEN:
+        description: 'Session Token de AWS'
+        required: true
+
+jobs:
+  deploy:
+    name: Desplegar en ECS
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      AWS_REGION: ${{ inputs.aws_region }}
+      AWS_ACCOUNT_ID: ${{ inputs.aws_account_id }}
+      ECR_REPOSITORY: ${{ inputs.ecr_repository }}
+      ECS_CLUSTER: ${{ inputs.ecs_cluster }}
+      ECS_SERVICE: ${{ inputs.ecs_service }}
+      ECS_TASK_FAMILY: ${{ inputs.ecs_task_family }}
+      ECS_CONTAINER_NAME: ${{ inputs.ecs_container_name }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
+
+    steps:
+      # 1. Configurar Credenciales AWS
+      - name: Configurar Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 2. Obtener la definición de tarea actual desde ECS
+      - name: Obtener definición de tarea actual
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$ECS_TASK_FAMILY" \
+            --query taskDefinition > task-definition.json
+
+          jq -e 'del(
+            .taskDefinitionArn,
+            .revision,
+            .status,
+            .requiresAttributes,
+            .compatibilities,
+            .registeredAt,
+            .registeredBy
+          )' task-definition.json > base-task-definition.json
+
+      # 3. Actualizar la imagen del contenedor especificado
+      - name: Actualizar imagen del contenedor
+        run: |
+          IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG"
+
+          jq -e --arg IMAGE_URI "$IMAGE_URI" --arg CONTAINER_NAME "$ECS_CONTAINER_NAME" '
+            .containerDefinitions |= map(
+              if .name == $CONTAINER_NAME
+              then .image = $IMAGE_URI
+              else .
+              end
+            )
+          ' base-task-definition.json > new-task-definition.json
+
+          UPDATED=$(jq -r --arg CONTAINER_NAME "$ECS_CONTAINER_NAME" --arg IMAGE_URI "$IMAGE_URI" '
+            .containerDefinitions[] | select(.name == $CONTAINER_NAME and .image == $IMAGE_URI) | .name
+          ' new-task-definition.json)
+
+          if [ -z "$UPDATED" ]; then
+            echo "Error: Container '$ECS_CONTAINER_NAME' not found in task definition or image was not updated."
+            exit 1
+          fi
+
+      # 4. Registrar una nueva versión de la definición de tarea
+      - name: Registrar nueva definición de tarea
+        id: register-task
+        run: |
+          NEW_TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-definition.json \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          if [ -z "$NEW_TASK_DEFINITION_ARN" ]; then
+            echo "Error: Failed to register new task definition."
+            exit 1
+          fi
+
+          echo "task_definition_arn=$NEW_TASK_DEFINITION_ARN" >> $GITHUB_OUTPUT
+
+      # 5. Actualizar el servicio ECS con la nueva definición de tarea
+      - name: Actualizar servicio ECS
+        run: |
+          aws ecs update-service \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --task-definition "${{ steps.register-task.outputs.task_definition_arn }}" \
+            --force-new-deployment
+
+      # 6. Esperar a que el servicio se estabilice
+      - name: Esperar a que el servicio se estabilice
+        run: |
+          aws ecs wait services-stable \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
