@@ -3,7 +3,7 @@ name: Pipeline Principal CI/CD
 on:
   push:
     branches: 
-      - develop
+      - main
 
 jobs:
   test:
