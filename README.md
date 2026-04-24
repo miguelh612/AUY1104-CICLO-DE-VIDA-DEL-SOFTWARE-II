@@ -16,7 +16,7 @@ Construye la imagen Docker, le asigna un tag y la sube al repositorio en ECR.
 
 Implementa la actualización en un rolling update, se activa cuando se detecta una imagen con un hash nuevo, la implementa en ECS.
 
-### .env    
+### .env
 
 - AWS_ACCESS_KEY_ID
 - AWS_SECRET_ACCESS_KEY
