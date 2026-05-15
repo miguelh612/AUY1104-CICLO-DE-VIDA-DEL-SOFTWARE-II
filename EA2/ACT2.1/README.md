@@ -353,4 +353,4 @@ Ahora realizaremos el cambio de selector del Service.
 # Cambia el selector del Service de 'blue' a 'green'
 kubectl patch service duoc-app-bg-service -p '{"spec": {"selector": {"version": "green"}}}'
 ```
-Verifica que el tráfico público llega solo a la versión Blue. Para un servicio de tipo LoadBalancer, el acceso inicial se realiza a través de la Public DNS, que se obtiene posterior a la ejecución del comando ```kubetl get svc``` como ```ID.us-east-1.elb.amazonaws.com``` . Una vez que obtengas el EXTERNAL-IP (el CNAME del LoadBalancer) del servicio duoc-app-bg-service. **Resultado Esperado:** Hola! Soy Green (Confirmación: Green está en vivo).
+Verifica que el tráfico público llega solo a la versión Blue. Para un servicio de tipo LoadBalancer, el acceso inicial se realiza a través de la Public DNS, que se obtiene posterior a la ejecución del comando ```kubetl get svc``` como ```ID.us-east-1.elb.amazonaws.com``` . Una vez que obtengas el EXTERNAL-IP (el CNAME del LoadBalancer) del servicio duoc-app-bg-service. **Resultado Esperado:** Hola! Soy Green (Confirmación: Green está en vivo).*
